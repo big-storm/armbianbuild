@@ -202,7 +202,7 @@ jobs:
           # - sid # Debian unstable
         TYPE:
           - minimal
-          #- cli
+          - cli
           - desktop
         include:
           - TYPE: desktop
