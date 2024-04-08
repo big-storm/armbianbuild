@@ -279,7 +279,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: armbian/build@v24.5.0
+      - uses: armbian/build@v24.5
         with:
           armbian_token:              "${{secrets.GITHUB_TOKEN}}"
           armbian_target:             "${{inputs.armbian_target}}"
