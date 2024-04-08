@@ -1,4 +1,4 @@
-name: "Build One by One (anyone)"
+name: "Build onecloud"
 on:
   workflow_dispatch:
     inputs:
@@ -272,7 +272,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: armbian/build@v24.2.1
+      - uses: armbian/build@main
         with:
           armbian_token:              "${{secrets.GITHUB_TOKEN}}"
           armbian_target:             "${{inputs.armbian_target}}"
@@ -282,5 +282,5 @@ jobs:
           armbian_board:              "${{inputs.armbian_board}}"
           armbian_release_tittle:     "Armbian SDK"
           armbian_release_body:       "Virtual images for x86 and arm64"
-          armbian_pgp_key:            "${{secrets.GPG_KEY1}}"
-          armbian_pgp_password:       "${{secrets.GPG_PASSPHRASE1}}"
+#          armbian_pgp_key:            "${{secrets.GPG_KEY1}}"
+#          armbian_pgp_password:       "${{secrets.GPG_PASSPHRASE1}}"
