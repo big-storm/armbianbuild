@@ -2,7 +2,7 @@ name: Makefile CI
 on:
 #  schedule:
 #   - cron: '0 0 0 */1 *'
-   
+
   workflow_dispatch:
     inputs:
 
@@ -51,7 +51,7 @@ on:
       armbian_version:
         description: 'Version'
         required: false
-        default: ''
+        default: '24.5.0-trunk.384'
 
       armbian_board:
         type: choice
@@ -269,6 +269,9 @@ on:
         - xiaomi-umi
         - zeropi
         default: 'onecloud'
+permissions:
+  contents: write
+
 jobs:
 
   build:
