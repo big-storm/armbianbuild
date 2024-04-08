@@ -1,338 +1,290 @@
 name: Makefile CI
-
 on:
+#  schedule:
+#   - cron: '0 0 0 */1 *'
+   
   workflow_dispatch:
-  push:
-    branches:
-      - readme
-    paths:
-      - .github/workflows/makefile.yml
+    inputs:
 
-env:
-  SCRIPT_REPO: ${{ github.repository }}
-  SCRIPT_REF: ${{ github.ref_name }}
-  UBOOT_REPO: hzyitc/u-boot-onecloud
-  UBOOT_RELEASE: latest
-  UBOOT_BURNIMG: eMMC.burn.img
-  ARMBIAN_REPO: armbian/build
-  ARMBIAN_REF: main
-  PATCHES: 4077,5076
-  PATCHES_DISABLED: 5082
+      armbian_target:
+        type: choice
+        description: 'Build'
+        required: false
+        options:
+        - kernel
+        - build
+        default: build
 
-permissions:
-  contents: write
+      armbian_kernel_branch:
+        type: choice
+        description: 'Kernel branch'
+        options:
+        - legacy
+        - current
+        - edge
+        default: 'current'
 
+      armbian_release:
+        type: choice
+        description: 'Userspace'
+        options:
+        - jammy
+        - mantic
+        - bookworm
+        - trixie
+        - sid
+        default: 'trixie'
+
+      armbian_ui:
+        type: choice
+        description: 'User interface (not all works)'
+        options:
+        - minimal
+        - server
+        - xfce
+        - gnome
+        - cinnamon
+        - i3-wm
+        - kde-plasma
+        default: 'minimal'
+
+      armbian_version:
+        description: 'Version'
+        required: false
+        default: ''
+
+      armbian_board:
+        type: choice
+        description: 'Board'
+        options:
+        - armsom-sige7
+        - armsom-w3
+        - ayn-odin2
+        - bananapi
+        - bananapicm4io
+        - bananapim1plus
+        - bananapim2plus
+        - bananapim2pro
+        - bananapim2s
+        - bananapim2ultra
+        - bananapim2zero
+        - bananapim3
+        - bananapim4zero
+        - bananapim5
+        - bananapim64
+        - bananapim7
+        - bananapipro
+        - bananapir2
+        - bananapir2pro
+        - beaglev
+        - bigtreetech-cb1
+        - clearfogbase
+        - clearfogpro
+        - clockworkpi-a06
+        - cubieboard
+        - cubieboard2
+        - cubieboard4
+        - cubietruck
+        - cubietruckplus
+        - cubox-i
+        - espressobin
+        - firefly-rk3399
+        - fxblox-rk1
+        - helios4
+        - helios64
+        - hikey960
+        - hinlink-h28k
+        - hinlink-h66k
+        - hinlink-h68k
+        - hinlink-h88k
+        - hinlink-hnas
+        - hinlink-ht2
+        - indiedroid-nova
+        - inovato-quadra
+        - jethubj100
+        - jethubj80
+        - jetson-nano
+        - khadas-edge
+        - khadas-edge2
+        - khadas-vim1
+        - khadas-vim1s
+        - khadas-vim2
+        - khadas-vim3
+        - khadas-vim3l
+        - khadas-vim4
+        - lafrite
+        - lepotato
+        - licheepi-4a
+        - lime-a33
+        - lime-a64
+        - lime
+        - lime2
+        - macchiatobin-doubleshot
+        - mangopi-m28k
+        - mba8mpxl-ras314
+        - mba8mpxl
+        - mekotronics-r58-minipc
+        - mekotronics-r58x-4g
+        - mekotronics-r58x-pro
+        - mekotronics-r58x
+        - melea1000
+        - mixtile-blade3
+        - mk808c
+        - nanopc-cm3588-nas
+        - nanopct4
+        - nanopct6
+        - nanopi-r1
+        - nanopi-r1s-h5
+        - nanopi-r2c
+        - nanopi-r2s
+        - nanopi-r4s
+        - nanopi-r4se
+        - nanopi-r5c
+        - nanopi-r5s
+        - nanopi-r6s
+        - nanopia64
+        - nanopiair
+        - nanopiduo
+        - nanopiduo2
+        - nanopik1plus
+        - nanopik2-s905
+        - nanopim4
+        - nanopim4v2
+        - nanopineo
+        - nanopineo2
+        - nanopineo2black
+        - nanopineo3
+        - nanopineo4
+        - nanopineocore2
+        - nanopineoplus2
+        - odroidc2
+        - odroidc4
+        - odroidhc4
+        - odroidm1
+        - odroidn2
+        - odroidn2l
+        - odroidxu4
+        - olimex-a20-olinuxino-micro
+        - olimex-teres-a64
+        - olinux-som-a13
+        - onecloud
+        - orangepi-r1
+        - orangepi-r1plus-lts
+        - orangepi-r1plus
+        - orangepi-rk3399
+        - orangepi2
+        - orangepi3-lts
+        - orangepi3
+        - orangepi3b
+        - orangepi4-lts
+        - orangepi4
+        - orangepi5-plus
+        - orangepi5
+        - orangepilite
+        - orangepilite2
+        - orangepione
+        - orangepioneplus
+        - orangepipc
+        - orangepipc2
+        - orangepipcplus
+        - orangepiplus
+        - orangepiplus2e
+        - orangepiprime
+        - orangepiwin
+        - orangepizero
+        - orangepizero2
+        - orangepizero3
+        - orangepizeroplus
+        - orangepizeroplus2-h3
+        - orangepizeroplus2-h5
+        - panther-x2
+        - pcduino3
+        - phytiumpi
+        - pine64
+        - pine64so
+        - pinebook-a64
+        - pinebook-pro
+        - pinecube
+        - pineh64-b
+        - pineh64
+        - qemu-uboot-arm64
+        - qemu-uboot-x86
+        - qemu-uefi-x86
+        - quartz64a
+        - quartz64b
+        - radxa-e25
+        - radxa-zero
+        - radxa-zero2
+        - radxa-zero3
+        - recore
+        - renegade
+        - roc-rk3399-pc
+        - rock-3a
+        - rock-3c
+        - rock-4se
+        - rock-5-cmio
+        - rock-5a
+        - rock-5b
+        - rock-s0
+        - rock64
+        - rockpi-4a
+        - rockpi-4b
+        - rockpi-4bplus
+        - rockpi-4c
+        - rockpi-4cplus
+        - rockpi-e
+        - rockpi-n10
+        - rockpi-s
+        - rockpro64
+        - rpi4b
+        - rpi5b
+        - sk-am62b
+        - sk-am64b
+        - sk-am68
+        - sk-tda4vm
+        - star64
+        - station-m1
+        - station-m2
+        - station-m3
+        - station-p1
+        - station-p2
+        - thinkpad-x13s
+        - tinker-edge-r
+        - tinkerboard-2
+        - tinkerboard
+        - tritium-h3
+        - tritium-h5
+        - udoo
+        - uefi-arm64
+        - uefi-riscv64
+        - uefi-x86
+        - unleashed
+        - unmatched
+        - visionfive
+        - visionfive2
+        - wdk2023
+        - wsl2-arm64
+        - wsl2-x86
+        - xiaomi-elish
+        - xiaomi-umi
+        - zeropi
+        default: 'onecloud'
 jobs:
-  prepare:
-    name: Prepare
-    runs-on: ubuntu-22.04
-    outputs:
-      env: ${{ steps.get.outputs.env }}
-    steps:
-      - id: get
-        name: Get repositories information
-        run: |
-          TIME="$(curl https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
-          TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
-
-          SCRIPT_SHA=$(curl https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
-          UBOOT_TAG=$(curl https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
-          ARMBIAN_SHA=$(curl https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
-
-          cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
-            TIME=$TIME
-            TAG=$TAG
-            SCRIPT_SHA=$SCRIPT_SHA
-            UBOOT_TAG=$UBOOT_TAG
-            ARMBIAN_SHA=$ARMBIAN_SHA
-          EOF
-          echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
-
-      - name: Show repositories information
-        run: |
-          C_RESET="\e[0m"
-          C_BLACK="\e[30m"
-          C_RED="\e[31m"
-          C_GREEN="\e[32m"
-          C_YELLOW="\e[33m"
-          C_BLUE="\e[34m"
-          C_MAGENTA="\e[35m"
-          C_CYAN="\e[36m"
-          C_GRAY="\e[37m"
-
-          echo -e "$(cat <<EOF | sed -E 's/^  //'
-            TIME: ${C_GREEN}$(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')${C_RESET}
-            Script: ${C_BLUE}${SCRIPT_REPO}${C_RESET}@${C_MAGENTA}${SCRIPT_REF}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF})
-                    ${C_YELLOW}${SCRIPT_SHA}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA})
-            U-Boot: ${C_BLUE}${UBOOT_REPO}${C_RESET}@${C_MAGENTA}${UBOOT_RELEASE}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE})
-                    ${C_MAGENTA}${UBOOT_TAG}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
-            Armbian: ${C_BLUE}${ARMBIAN_REPO}${C_RESET}@${C_MAGENTA}${ARMBIAN_REF}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF})
-                     ${C_YELLOW}${ARMBIAN_SHA}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA})
-          EOF
-          )"
-
-          if [[ -n "${PATCHES}" ]]; then
-            echo -e "\nPatches:"
-            while read -r id; do
-              echo -e "  ${C_BLUE}armbian/build${C_RESET}#${C_MAGENTA}${id}${C_RESET}(http://github.com/armbian/build/pull/${id})"
-            done < <(echo -e "${PATCHES}" | tr ',' '\n')
-          fi
-
-          cat <<EOF | sed -E 's/^  //' >>$GITHUB_STEP_SUMMARY
-            # $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
-
-            ## Sources
-            Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
-            Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-
-            ${PATCHES:+$(
-              echo "## Patches"
-              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
-            )}
-          EOF
-
-      - name: Generate release informations
-        run: |
-          cat <<EOF | sed -E 's/^  //' | tee Release.md
-            CI $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
-
-            # Sources
-            Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
-            Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-
-            ${PATCHES:+$(
-              echo "# Patches"
-              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
-            )}
-
-            # SHA256
-          EOF
-
-          echo "NAME=$(head --line=1 Release.md)" >>$GITHUB_ENV
-          tail --line=+2 Release.md >Body.md
-
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.TAG }}
-          target_commitish: ${{ github.sha }}
-          name: ${{ env.NAME }}
-          body_path: Body.md
-
-  build-debs:
-    name: Build ${{ matrix.BRANCH }}
-    needs: prepare
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        BRANCH:
-         # - edge
-          - current
-
-    steps:
-      - name: Import env
-        run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
-
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          repository: ${{ env.ARMBIAN_REPO }}
-          ref: ${{ env.ARMBIAN_SHA }}
-
-      - name: "Apply patch ${{ env.PATCHES }}"
-        if: ${{ env.PATCHES }}
-        run: |
-          echo "::group::Download"
-          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
-          echo "::endgroup::"
-
-          for file in *.patch; do
-            echo "::group::Applying $file"
-            patch --batch -p1 -N <"$file"
-            echo "::endgroup::"
-          done
-
-      - name: Build
-        run: |
-          # Don't update remote cache
-          export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh kernel \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              EXPERT=yes \
-              USE_CCACHE=no
-          sudo chown $(id -u):$(id -g) -R output/
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: debs-${{ matrix.BRANCH }}
-          path: output/debs/*
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.TAG }}
-          files: |
-            output/debs/*
 
   build:
-    name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
-    needs: [ prepare, build-debs ]
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        BRANCH:
-          - current
-        RELEASE:
-          # - focal # Ubuntu 20.04 LTS
-          - jammy # Ubuntu 22.04 LTS
-          # - lunar # Ubuntu 23.04
-          # - buster # Debian 10
-          # - bullseye # Debian 11
-          # - bookworm # Debian 12
-          - trixie # Debian 13
-          # - sid # Debian unstable
-        TYPE:
-          - minimal
-          - cli
-          - desktop
-        include:
-          - TYPE: desktop
-            DESKTOP_ENVIRONMENT: xfce
-            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
-            DESKTOP_APPGROUPS_SELECTED: ""
-        exclude:
-          - RELEASE: sid
-            TYPE: desktop
-
+    name: "Build Armbian"
+    runs-on: ubuntu-latest
     steps:
-      - name: Import env
-        run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
 
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: armbian/build@v24.2.1
         with:
-          repository: ${{ env.ARMBIAN_REPO }}
-          ref: ${{ env.ARMBIAN_SHA }}
-
-      - name: "Apply patch ${{ env.PATCHES }}"
-        if: ${{ env.PATCHES }}
-        run: |
-          echo "::group::Download"
-          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
-          echo "::endgroup::"
-
-          for file in *.patch; do
-            echo "::group::Applying $file"
-            patch --batch -p1 -N <"$file"
-            echo "::endgroup::"
-          done
-
-      - name: Download debs
-        uses: actions/download-artifact@v3
-        with:
-          name: debs-${{ matrix.BRANCH }}
-          path: output/debs/
-
-      - name: Build
-        run: |
-          # Don't update remote cache
-          export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh build \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              RELEASE=${{ matrix.RELEASE }} \
-              KERNEL_CONFIGURE=no \
-              BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
-              BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
-              DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
-              DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
-              DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
-              EXPERT=yes \
-              SKIP_EXTERNAL_TOOLCHAINS=yes \
-              CLEAN_LEVEL= \
-              USE_CCACHE=no \
-              COMPRESS_OUTPUTIMAGE=img
-          sudo chown $(id -u):$(id -g) -R output/
-
-      - name: Install Dependents
-        run: |
-          sudo apt install img2simg
-
-          ver="v0.3.1"
-          curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
-          chmod +x ./AmlImg
-
-      - name: Download and unpack the latest u-boot
-        run: |
-          echo "::group::Download"
-          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
-          echo "::endgroup::"
-
-          echo "::group::Unpack"
-          ./AmlImg unpack ./uboot.img burn/
-          echo "::endgroup::"
-
-      - name: Extract boot and rootfs partitions
-        run: |
-          diskimg=$(ls output/images/*.img)
-          loop=$(sudo losetup --find --show --partscan $diskimg)
-          sudo img2simg ${loop}p1 burn/boot.simg
-          sudo img2simg ${loop}p2 burn/rootfs.simg
-          sudo losetup -d $loop
-          sudo chown $(id -u):$(id -g) -R burn/
-
-      - name: Generate burn image
-        run: |
-          echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
-          echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
-
-          cat <<EOF >>burn/commands.txt
-          PARTITION:boot:sparse:boot.simg
-          VERIFY:boot:normal:boot.VERIFY
-          PARTITION:rootfs:sparse:rootfs.simg
-          VERIFY:rootfs:normal:rootfs.VERIFY
-          EOF
-
-          prefix=$(ls output/images/*.img | sed 's/\.img$//')
-          burnimg=${prefix}.burn.img
-          ./AmlImg pack $burnimg burn/
-
-      - name: Hash and compress images
-        run: |
-          for f in output/images/*.img; do
-            sha256sum "$f" | tee -a sha256sum
-            xz --threads=0 --compress "$f"
-          done
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
-          path: output/images/*
-
-      - name: Generate release informations
-        run: |
-          cat <<EOF | sed -E 's/^  //' | tee Release.md
-            $(cat sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
-          EOF
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ env.TAG }}
-          append_body: true
-          body_path: Release.md
-          files: |
-            output/images/*
+          armbian_token:              "${{secrets.GITHUB_TOKEN}}"
+          armbian_target:             "${{inputs.armbian_target}}"
+          armbian_release:            "${{inputs.armbian_release}}"
+          armbian_kernel_branch:      "${{inputs.armbian_kernel_branch}}"
+          armbian_ui:                 "${{inputs.armbian_ui}}"
+          armbian_board:              "${{inputs.armbian_board}}"
+          armbian_release_tittle:     "Armbian SDK"
+          armbian_release_body:       "Virtual images for x86 and arm64"
+          armbian_pgp_key:            "${{secrets.GPG_KEY1}}"
+          armbian_pgp_password:       "${{secrets.GPG_PASSPHRASE1}}"
