@@ -1,8 +1,5 @@
-name: Makefile CI
+name: "Build One by One (anyone)"
 on:
-#  schedule:
-#   - cron: '0 0 0 */1 *'
-
   workflow_dispatch:
     inputs:
 
@@ -33,7 +30,7 @@ on:
         - bookworm
         - trixie
         - sid
-        default: 'trixie'
+        default: 'jammy'
 
       armbian_ui:
         type: choice
@@ -51,7 +48,7 @@ on:
       armbian_version:
         description: 'Version'
         required: false
-        default: '24.5.0-trunk.384'
+        default: ''
 
       armbian_board:
         type: choice
@@ -268,10 +265,6 @@ on:
         - xiaomi-elish
         - xiaomi-umi
         - zeropi
-        default: 'onecloud'
-permissions:
-  contents: write
-
 jobs:
 
   build:
@@ -279,7 +272,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: armbian/build@main
+      - uses: armbian/build@v24.2.1
         with:
           armbian_token:              "${{secrets.GITHUB_TOKEN}}"
           armbian_target:             "${{inputs.armbian_target}}"
