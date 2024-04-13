@@ -45,16 +45,16 @@ on:
         - kde-plasma
         default: 'minimal'
 
-      armbian_version:
-        description: 'Version'
-        required: false
-        default: ''
+#      armbian_version:
+#        description: 'Version'
+#        required: false
+#        default: ''
         
-      auto_kernel:
-        description: "Auto use the latest kernel."
-        required: false
-        default: true
-        type: boolean
+#      auto_kernel:
+#        description: "Auto use the latest kernel."
+#        required: false
+#        default: true
+#        type: boolean
 
       armbian_board:
         type: choice
@@ -286,7 +286,7 @@ jobs:
           armbian_target:             "${{inputs.armbian_target}}"
           armbian_release:            "${{inputs.armbian_release}}"
           armbian_kernel_branch:      "${{inputs.armbian_kernel_branch}}"
-          auto_kernel:                ${{ inputs.auto_kernel }}
+    #      auto_kernel:                ${{ inputs.auto_kernel }}
           armbian_ui:                 "${{inputs.armbian_ui}}"
           armbian_board:              "${{inputs.armbian_board}}"
           armbian_release_tittle:     "Armbian SDK"
