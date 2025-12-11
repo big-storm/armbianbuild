@@ -38,15 +38,15 @@ jobs:
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
           SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
 
-          # Fix 1: Use GitHub token to avoid rate limit and fetch latest TAG (not release)
+          # Fix: Use GitHub API to get latest Git tag (not release)
           if [[ "${UBOOT_RELEASE}" == "latest" ]]; then
             UBOOT_TAG=$(curl -s \
-              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${UBOOT_REPO}/tags" \
               | jq -r '.[0].name // empty')
             if [[ -z "$UBOOT_TAG" ]]; then
-              echo "ERROR: Failed to get latest tag from ${UBOOT_REPO}"
+              echo "ERROR: Failed to fetch latest tag from ${UBOOT_REPO}"
               exit 1
             fi
           else
@@ -156,6 +156,8 @@ jobs:
       - name: Build kernel debs
         run: |
           export GITHUB_ACTIONS=false
+          # Use mirror for debs build too (optional but safe)
+          export MIRROR="https://mirrors.aliyun.com"
           sudo --preserve-env ./compile.sh kernel \
             ALLOW_ROOT=yes \
             BOARD=onecloud \
@@ -184,30 +186,22 @@ jobs:
       fail-fast: false
       matrix:
         BRANCH: [current]
-        RELEASE: [jammy, bookworm]  # Keep only stable releases
-        TYPE: [minimal, cli, desktop]
-        include:
-          - TYPE: desktop
-            DESKTOP_ENVIRONMENT: xfce
-            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
-            DESKTOP_APPGROUPS_SELECTED: ""
-        exclude:
-          - RELEASE: bookworm
-            TYPE: desktop
-          - RELEASE: jammy
-            TYPE: desktop
-            # Optional: disable desktop builds if too heavy
+        RELEASE: [jammy, bookworm]
+        TYPE: [minimal, cli]
+        # Desktop builds disabled due to complexity and size
+        # include:
+        #   - TYPE: desktop
+        #     DESKTOP_ENVIRONMENT: xfce
+        #     DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
+        #     DESKTOP_APPGROUPS_SELECTED: ""
+        # exclude:
+        #   - RELEASE: bookworm
+        #     TYPE: desktop
 
     steps:
       - name: Import env
         run: |
           echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
-
-      - name: Use Aliyun APT mirror (Fix 2: avoid base-files failure)
-        run: |
-          sudo sed -i 's|http://[a-z][a-z]\.archive\.ubuntu\.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list
-          sudo sed -i 's|http://security\.ubuntu\.com|https://mirrors.aliyun.com|g' /etc/apt/sources.list
-          sudo sed -i 's|http://deb\.debian\.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list
 
       - name: Checkout Armbian
         uses: actions/checkout@v3
@@ -235,6 +229,19 @@ jobs:
       - name: Build image
         run: |
           export GITHUB_ACTIONS=false
+          # 🔑 关键修复：强制 Armbian 使用阿里云镜像
+          case "${{ matrix.RELEASE }}" in
+            focal|jammy|lunar|noble|mantic)
+              export MIRROR="https://mirrors.aliyun.com/ubuntu"
+              ;;
+            buster|bullseye|bookworm|trixie|sid)
+              export MIRROR="https://mirrors.aliyun.com/debian"
+              ;;
+            *)
+              export MIRROR="https://mirrors.aliyun.com"
+              ;;
+          esac
+
           sudo --preserve-env ./compile.sh build \
             ALLOW_ROOT=yes \
             BOARD=onecloud \
@@ -302,7 +309,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE }}
           path: output/images/*
 
       - name: Append to release
