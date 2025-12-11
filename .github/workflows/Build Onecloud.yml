@@ -38,15 +38,24 @@ jobs:
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
           SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
 
-          # Fix: Use GitHub API to get latest Git tag (not release)
+          # Fix: Safely fetch latest Git tag with error handling
           if [[ "${UBOOT_RELEASE}" == "latest" ]]; then
-            UBOOT_TAG=$(curl -s \
+            tags_response=$(curl -s \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${UBOOT_REPO}/tags" \
-              | jq -r '.[0].name // empty')
+              "https://api.github.com/repos/${UBOOT_REPO}/tags")
+
+            # Check for API errors (e.g., 404, rate limit)
+            if echo "$tags_response" | jq -e 'has("message")' >/dev/null; then
+              echo "ERROR: GitHub API error while fetching tags from ${UBOOT_REPO}:"
+              echo "$tags_response" | jq -r '.message // "Unknown error"'
+              exit 1
+            fi
+
+            # Extract first tag name only if response is a non-empty array
+            UBOOT_TAG=$(echo "$tags_response" | jq -r 'if type=="array" and length>0 then .[0].name else empty end')
             if [[ -z "$UBOOT_TAG" ]]; then
-              echo "ERROR: Failed to fetch latest tag from ${UBOOT_REPO}"
+              echo "ERROR: No Git tags found in repository ${UBOOT_REPO}"
               exit 1
             fi
           else
@@ -144,7 +153,8 @@ jobs:
           mkdir -p patches
           for id in $(echo "${PATCHES}" | tr ',' ' '); do
             echo "::group::Download patch #$id"
-            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/commit/$id.patch"
+            # ✅ FIX: Use pull request patch URL (not commit)
+            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
             echo "::endgroup::"
           done
           for f in patches/*.patch; do
@@ -156,7 +166,6 @@ jobs:
       - name: Build kernel debs
         run: |
           export GITHUB_ACTIONS=false
-          # Use mirror for debs build too (optional but safe)
           export MIRROR="https://mirrors.aliyun.com"
           sudo --preserve-env ./compile.sh kernel \
             ALLOW_ROOT=yes \
@@ -188,15 +197,6 @@ jobs:
         BRANCH: [current]
         RELEASE: [jammy, bookworm]
         TYPE: [minimal, cli]
-        # Desktop builds disabled due to complexity and size
-        # include:
-        #   - TYPE: desktop
-        #     DESKTOP_ENVIRONMENT: xfce
-        #     DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
-        #     DESKTOP_APPGROUPS_SELECTED: ""
-        # exclude:
-        #   - RELEASE: bookworm
-        #     TYPE: desktop
 
     steps:
       - name: Import env
@@ -214,7 +214,8 @@ jobs:
         run: |
           mkdir -p patches
           for id in $(echo "${PATCHES}" | tr ',' ' '); do
-            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/commit/$id.patch"
+            # ✅ FIX: Use pull request patch URL
+            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
           done
           for f in patches/*.patch; do
             patch --batch -p1 -N <"$f"
@@ -229,7 +230,6 @@ jobs:
       - name: Build image
         run: |
           export GITHUB_ACTIONS=false
-          # 🔑 关键修复：强制 Armbian 使用阿里云镜像
           case "${{ matrix.RELEASE }}" in
             focal|jammy|lunar|noble|mantic)
               export MIRROR="https://mirrors.aliyun.com/ubuntu"
@@ -262,7 +262,7 @@ jobs:
 
       - name: Install tools
         run: |
-          sudo apt install -y img2simg
+          sudo apt update && sudo apt install -y img2simg
           ver="v0.3.1"
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
@@ -278,6 +278,11 @@ jobs:
 
       - name: Extract partitions
         run: |
+          if ! ls output/images/*.img >/dev/null 2>&1; then
+            echo "ERROR: No .img file found in output/images/"
+            ls -la output/images/
+            exit 1
+          fi
           diskimg=$(ls output/images/*.img)
           loop=$(sudo losetup --find --show --partscan "$diskimg")
           sudo img2simg "${loop}p1" burn/boot.simg
