@@ -38,14 +38,11 @@ jobs:
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
           SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
 
-          # Fix: Safely fetch latest Git tag with redirect support and error handling
           if [[ "${UBOOT_RELEASE}" == "latest" ]]; then
             tags_response=$(curl -sL \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${UBOOT_REPO}/tags")
-
-            # Check if response contains an API error message
             if echo "$tags_response" | jq -e 'has("message")' >/dev/null; then
               echo "ERROR: GitHub API error while fetching tags from ${UBOOT_REPO}:"
               echo "$tags_response" | jq -r '.message // "Unknown error"'
@@ -53,8 +50,6 @@ jobs:
               echo "$tags_response"
               exit 1
             fi
-
-            # Extract first tag only if it's a non-empty array
             UBOOT_TAG=$(echo "$tags_response" | jq -r 'if type=="array" and length>0 then .[0].name else empty end')
             if [[ -z "$UBOOT_TAG" ]]; then
               echo "ERROR: No Git tags found in repository ${UBOOT_REPO}"
@@ -167,8 +162,8 @@ jobs:
       - name: Build kernel debs
         run: |
           export GITHUB_ACTIONS=false
-          export MIRROR="https://mirrors.aliyun.com"
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← 关键修复：避免 git.kernel.org 超时
+          # ❌ REMOVED: export MIRROR="https://mirrors.aliyun.com"
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← Keep this
           sudo --preserve-env ./compile.sh kernel \
             ALLOW_ROOT=yes \
             BOARD=onecloud \
@@ -231,18 +226,8 @@ jobs:
       - name: Build image
         run: |
           export GITHUB_ACTIONS=false
-          case "${{ matrix.RELEASE }}" in
-            focal|jammy|lunar|noble|mantic)
-              export MIRROR="https://mirrors.aliyun.com/ubuntu"
-              ;;
-            buster|bullseye|bookworm|trixie|sid)
-              export MIRROR="https://mirrors.aliyun.com/debian"
-              ;;
-            *)
-              export MIRROR="https://mirrors.aliyun.com"
-              ;;
-          esac
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← 关键修复：避免 git.kernel.org 超时
+          # ❌ REMOVED ALL MIRROR SETTINGS — use official sources
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← Keep this
 
           sudo --preserve-env ./compile.sh build \
             ALLOW_ROOT=yes \
