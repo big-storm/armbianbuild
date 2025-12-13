@@ -168,6 +168,7 @@ jobs:
         run: |
           export GITHUB_ACTIONS=false
           export MIRROR="https://mirrors.aliyun.com"
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← 关键修复：避免 git.kernel.org 超时
           sudo --preserve-env ./compile.sh kernel \
             ALLOW_ROOT=yes \
             BOARD=onecloud \
@@ -241,6 +242,7 @@ jobs:
               export MIRROR="https://mirrors.aliyun.com"
               ;;
           esac
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← 关键修复：避免 git.kernel.org 超时
 
           sudo --preserve-env ./compile.sh build \
             ALLOW_ROOT=yes \
