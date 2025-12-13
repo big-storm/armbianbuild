@@ -159,11 +159,29 @@ jobs:
             echo "::endgroup::"
           done
 
+      # 👇 FIX: Force official APT sources to avoid base-files failure 👇
+      - name: Force official APT sources (avoid mirror issues)
+        run: |
+          mkdir -p userpatches
+          cat > userpatches/sources.list.patch <<'EOF'
+--- /dev/null
++++ b/config/templates/sources-list.conf
+@@ -0,0 +1,9 @@
+{{ if eq .Distro "Ubuntu" }}
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }} main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-updates main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-security main restricted universe multiverse
+{{ else }}
+deb http://deb.debian.org/debian {{ .Release }} main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian {{ .Release }}-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security {{ .Release }}-security main contrib non-free non-free-firmware
+{{ end }}
+EOF
+
       - name: Build kernel debs
         run: |
           export GITHUB_ACTIONS=false
-          # ❌ REMOVED: export MIRROR="https://mirrors.aliyun.com"
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← Keep this
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
           sudo --preserve-env ./compile.sh kernel \
             ALLOW_ROOT=yes \
             BOARD=onecloud \
@@ -217,6 +235,25 @@ jobs:
             patch --batch -p1 -N <"$f"
           done
 
+      # 👇 FIX: Force official APT sources to avoid base-files failure 👇
+      - name: Force official APT sources (avoid mirror issues)
+        run: |
+          mkdir -p userpatches
+          cat > userpatches/sources.list.patch <<'EOF'
+--- /dev/null
++++ b/config/templates/sources-list.conf
+@@ -0,0 +1,9 @@
+{{ if eq .Distro "Ubuntu" }}
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }} main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-updates main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-security main restricted universe multiverse
+{{ else }}
+deb http://deb.debian.org/debian {{ .Release }} main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian {{ .Release }}-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security {{ .Release }}-security main contrib non-free non-free-firmware
+{{ end }}
+EOF
+
       - name: Download prebuilt debs
         uses: actions/download-artifact@v4
         with:
@@ -226,8 +263,7 @@ jobs:
       - name: Build image
         run: |
           export GITHUB_ACTIONS=false
-          # ❌ REMOVED ALL MIRROR SETTINGS — use official sources
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"  # ← Keep this
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
 
           sudo --preserve-env ./compile.sh build \
             ALLOW_ROOT=yes \
@@ -282,11 +318,11 @@ jobs:
           echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
           echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
           cat <<EOF >burn/commands.txt
-          PARTITION:boot:sparse:boot.simg
-          VERIFY:boot:normal:boot.VERIFY
-          PARTITION:rootfs:sparse:rootfs.simg
-          VERIFY:rootfs:normal:rootfs.VERIFY
-          EOF
+PARTITION:boot:sparse:boot.simg
+VERIFY:boot:normal:boot.VERIFY
+PARTITION:rootfs:sparse:rootfs.simg
+VERIFY:rootfs:normal:rootfs.VERIFY
+EOF
           prefix=$(ls output/images/*.img | sed 's/\.img$//')
           burnimg="${prefix}.burn.img"
           ./AmlImg pack "$burnimg" burn/
@@ -307,8 +343,8 @@ jobs:
       - name: Append to release
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
-            $(awk '{printf "%s: `%s`\n", $2, $1}' sha256sum)
-          EOF
+$(awk '{printf "%s: `%s`\n", $2, $1}' sha256sum)
+EOF
 
       - name: Upload images to release
         uses: softprops/action-gh-release@v1
