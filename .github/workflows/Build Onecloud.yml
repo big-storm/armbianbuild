@@ -2,7 +2,7 @@ name: "Build Onecloud"
 
 on:
   schedule:
-    - cron: '0 0 1 * *'
+  - cron: '0 0 1 * *'
   workflow_dispatch:
   push:
     branches:
@@ -34,86 +34,86 @@ jobs:
       - id: get
         name: Get repositories information
         run: |
-          TIME="$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
+          TIME="$(curl https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
-          SCRIPT_SHA=$(curl -s https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
 
-          if [[ "${UBOOT_RELEASE}" == "latest" ]]; then
-            tags_response=$(curl -sL \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${UBOOT_REPO}/tags")
-            if echo "$tags_response" | jq -e 'has("message")' >/dev/null; then
-              echo "ERROR: GitHub API error while fetching tags from ${UBOOT_REPO}:"
-              echo "$tags_response" | jq -r '.message // "Unknown error"'
-              echo "Raw response:"
-              echo "$tags_response"
-              exit 1
-            fi
-            UBOOT_TAG=$(echo "$tags_response" | jq -r 'if type=="array" and length>0 then .[0].name else empty end')
-            if [[ -z "$UBOOT_TAG" ]]; then
-              echo "ERROR: No Git tags found in repository ${UBOOT_REPO}"
-              exit 1
-            fi
-          else
-            UBOOT_TAG="${UBOOT_RELEASE}"
-          fi
+          SCRIPT_SHA=$(curl https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
+          UBOOT_TAG=$(curl https://api.github.com/repos/${UBOOT_REPO}/releases/${UBOOT_RELEASE} | jq -r .tag_name)
+          ARMBIAN_SHA=$(curl https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
 
-          ARMBIAN_SHA=$(curl -s https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
-
-          cat <<EOF >> "$GITHUB_ENV"
-          TIME=$TIME
-          TAG=$TAG
-          SCRIPT_SHA=$SCRIPT_SHA
-          UBOOT_TAG=$UBOOT_TAG
-          ARMBIAN_SHA=$ARMBIAN_SHA
+          cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
+            TIME=$TIME
+            TAG=$TAG
+            SCRIPT_SHA=$SCRIPT_SHA
+            UBOOT_TAG=$UBOOT_TAG
+            ARMBIAN_SHA=$ARMBIAN_SHA
           EOF
-
-          echo "env=$(cat "$GITHUB_ENV" | base64 -w 0)" >> "$GITHUB_OUTPUT"
+          echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
 
       - name: Show repositories information
         run: |
-          C_RESET="\e[0m"; C_GREEN="\e[32m"; C_BLUE="\e[34m"; C_MAGENTA="\e[35m"; C_YELLOW="\e[33m"
+          C_RESET="\e[0m"
+          C_BLACK="\e[30m"
+          C_RED="\e[31m"
+          C_GREEN="\e[32m"
+          C_YELLOW="\e[33m"
+          C_BLUE="\e[34m"
+          C_MAGENTA="\e[35m"
+          C_CYAN="\e[36m"
+          C_GRAY="\e[37m"
+
           echo -e "$(cat <<EOF | sed -E 's/^  //'
             TIME: ${C_GREEN}$(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')${C_RESET}
             Script: ${C_BLUE}${SCRIPT_REPO}${C_RESET}@${C_MAGENTA}${SCRIPT_REF}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF})
                     ${C_YELLOW}${SCRIPT_SHA}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA})
-            U-Boot: ${C_BLUE}${UBOOT_REPO}${C_RESET}@${C_MAGENTA}${UBOOT_TAG}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
+            U-Boot: ${C_BLUE}${UBOOT_REPO}${C_RESET}@${C_MAGENTA}${UBOOT_RELEASE}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE})
+                    ${C_MAGENTA}${UBOOT_TAG}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
             Armbian: ${C_BLUE}${ARMBIAN_REPO}${C_RESET}@${C_MAGENTA}${ARMBIAN_REF}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF})
                      ${C_YELLOW}${ARMBIAN_SHA}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA})
           EOF
           )"
+
           if [[ -n "${PATCHES}" ]]; then
             echo -e "\nPatches:"
-            tr ',' '\n' <<<"${PATCHES}" | while read -r id; do
-              [[ -z "$id" ]] && continue
-              echo -e "  ${C_BLUE}armbian/build${C_RESET}#${C_MAGENTA}${id}${C_RESET}(https://github.com/armbian/build/pull/${id})"
-            done
+            while read -r id; do
+              echo -e "  ${C_BLUE}armbian/build${C_RESET}#${C_MAGENTA}${id}${C_RESET}(http://github.com/armbian/build/pull/${id})"
+            done < <(echo -e "${PATCHES}" | tr ',' '\n')
           fi
-          cat <<EOF | sed -E 's/^  //' >>"$GITHUB_STEP_SUMMARY"
+
+          cat <<EOF | sed -E 's/^  //' >>$GITHUB_STEP_SUMMARY
             # $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
+
             ## Sources
             Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_TAG}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
+            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
             Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-            ${PATCHES:+## Patches
-            $(tr ',' '\n' <<<"${PATCHES}" | sed -E 's|(.*)|[armbian/build#\1](https://github.com/armbian/build/pull/\1)|')}
+
+            ${PATCHES:+$(
+              echo "## Patches"
+              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
+            )}
           EOF
 
       - name: Generate release informations
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
             CI $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
+
             # Sources
             Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_TAG}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
+            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
             Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-            ${PATCHES:+# Patches
-            $(tr ',' '\n' <<<"${PATCHES}" | sed -E 's|(.*)|[armbian/build#\1](https://github.com/armbian/build/pull/\1)|')}
+
+            ${PATCHES:+$(
+              echo "# Patches"
+              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
+            )}
+
             # SHA256
           EOF
-          echo "NAME=$(head -n1 Release.md)" >>"$GITHUB_ENV"
-          tail -n +2 Release.md >Body.md
+
+          echo "NAME=$(head --line=1 Release.md)" >>$GITHUB_ENV
+          tail --line=+2 Release.md >Body.md
 
       - name: Create release
         uses: softprops/action-gh-release@v1
@@ -131,203 +131,187 @@ jobs:
       fail-fast: false
       matrix:
         BRANCH:
+         # - edge
           - current
 
     steps:
       - name: Import env
         run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
 
-      - name: Checkout Armbian
+      - name: Checkout
         uses: actions/checkout@v3
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: Apply patches
+      - name: "Apply patch ${{ env.PATCHES }}"
         if: ${{ env.PATCHES }}
         run: |
-          mkdir -p patches
-          for id in $(echo "${PATCHES}" | tr ',' ' '); do
-            echo "::group::Download patch #$id"
-            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
-            echo "::endgroup::"
-          done
-          for f in patches/*.patch; do
-            echo "::group::Apply $(basename "$f")"
-            patch --batch -p1 -N <"$f"
+          echo "::group::Download"
+          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
+          echo "::endgroup::"
+
+          for file in *.patch; do
+            echo "::group::Applying $file"
+            patch --batch -p1 -N <"$file"
             echo "::endgroup::"
           done
 
-      # 👇 FIX: Force official APT sources to avoid base-files failure 👇
-      - name: Force official APT sources (avoid mirror issues)
+      - name: Build
         run: |
-          mkdir -p userpatches
-          cat > userpatches/sources.list.patch <<'EOF'
---- /dev/null
-+++ b/config/templates/sources-list.conf
-@@ -0,0 +1,9 @@
-{{ if eq .Distro "Ubuntu" }}
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }} main restricted universe multiverse
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-updates main restricted universe multiverse
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-security main restricted universe multiverse
-{{ else }}
-deb http://deb.debian.org/debian {{ .Release }} main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian {{ .Release }}-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security {{ .Release }}-security main contrib non-free non-free-firmware
-{{ end }}
-EOF
-
-      - name: Build kernel debs
-        run: |
+          # Don't update remote cache
           export GITHUB_ACTIONS=false
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
-          sudo --preserve-env ./compile.sh kernel \
-            ALLOW_ROOT=yes \
-            BOARD=onecloud \
-            BRANCH=${{ matrix.BRANCH }} \
-            EXPERT=yes \
-            USE_CCACHE=no
-          sudo chown -R $(id -u):$(id -g) output/
+          sudo --preserve-env \
+            ./compile.sh kernel \
+              ALLOW_ROOT=yes \
+              BOARD=onecloud \
+              BRANCH=${{ matrix.BRANCH }} \
+              EXPERT=yes \
+              USE_CCACHE=no
+          sudo chown $(id -u):$(id -g) -R output/
 
-      - name: Upload debs artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
         with:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/*
 
-      - name: Upload debs to release
+      - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
-          files: output/debs/*
+          files: |
+            output/debs/*
 
   build:
     name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
-    needs: [prepare, build-debs]
+    needs: [ prepare, build-debs ]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
-        BRANCH: [current]
-        RELEASE: [jammy, bookworm]
-        TYPE: [minimal, cli]
+        BRANCH:
+          - current
+        RELEASE:
+          # - focal # Ubuntu 20.04 LTS
+          - jammy # Ubuntu 22.04 LTS
+          # - lunar # Ubuntu 23.04
+          # - buster # Debian 10
+          # - bullseye # Debian 11
+          - bookworm # Debian 12
+          # - trixie # Debian 13
+          # - sid # Debian unstable
+        TYPE:
+          - minimal
+          - cli
+          - desktop
+        include:
+          - TYPE: desktop
+            DESKTOP_ENVIRONMENT: xfce
+            DESKTOP_ENVIRONMENT_CONFIG_NAME: config_base
+            DESKTOP_APPGROUPS_SELECTED: ""
+        exclude:
+          - RELEASE: sid
+            TYPE: desktop
 
     steps:
       - name: Import env
         run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
 
-      - name: Checkout Armbian
+      - name: Checkout
         uses: actions/checkout@v3
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: Apply patches
+      - name: "Apply patch ${{ env.PATCHES }}"
         if: ${{ env.PATCHES }}
         run: |
-          mkdir -p patches
-          for id in $(echo "${PATCHES}" | tr ',' ' '); do
-            curl -L -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
-          done
-          for f in patches/*.patch; do
-            patch --batch -p1 -N <"$f"
+          echo "::group::Download"
+          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
+          echo "::endgroup::"
+
+          for file in *.patch; do
+            echo "::group::Applying $file"
+            patch --batch -p1 -N <"$file"
+            echo "::endgroup::"
           done
 
-      # 👇 FIX: Force official APT sources to avoid base-files failure 👇
-      - name: Force official APT sources (avoid mirror issues)
-        run: |
-          mkdir -p userpatches
-          cat > userpatches/sources.list.patch <<'EOF'
---- /dev/null
-+++ b/config/templates/sources-list.conf
-@@ -0,0 +1,9 @@
-{{ if eq .Distro "Ubuntu" }}
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }} main restricted universe multiverse
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-updates main restricted universe multiverse
-deb http://ports.ubuntu.com/ubuntu-ports {{ .Release }}-security main restricted universe multiverse
-{{ else }}
-deb http://deb.debian.org/debian {{ .Release }} main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian {{ .Release }}-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security {{ .Release }}-security main contrib non-free non-free-firmware
-{{ end }}
-EOF
-
-      - name: Download prebuilt debs
-        uses: actions/download-artifact@v4
+      - name: Download debs
+        uses: actions/download-artifact@v3
         with:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/
 
-      - name: Build image
+      - name: Build
         run: |
+          # Don't update remote cache
           export GITHUB_ACTIONS=false
-          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
+          sudo --preserve-env \
+            ./compile.sh build \
+              ALLOW_ROOT=yes \
+              BOARD=onecloud \
+              BRANCH=${{ matrix.BRANCH }} \
+              RELEASE=${{ matrix.RELEASE }} \
+              KERNEL_CONFIGURE=no \
+              BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
+              BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
+              DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
+              DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
+              DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
+              EXPERT=yes \
+              SKIP_EXTERNAL_TOOLCHAINS=yes \
+              CLEAN_LEVEL= \
+              USE_CCACHE=no \
+              COMPRESS_OUTPUTIMAGE=img
+          sudo chown $(id -u):$(id -g) -R output/
 
-          sudo --preserve-env ./compile.sh build \
-            ALLOW_ROOT=yes \
-            BOARD=onecloud \
-            BRANCH=${{ matrix.BRANCH }} \
-            RELEASE=${{ matrix.RELEASE }} \
-            KERNEL_CONFIGURE=no \
-            BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
-            BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
-            DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
-            DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
-            DESKTOP_APPGROUPS_SELECTED="${{ matrix.DESKTOP_APPGROUPS_SELECTED }}" \
-            EXPERT=yes \
-            SKIP_EXTERNAL_TOOLCHAINS=yes \
-            CLEAN_LEVEL="" \
-            USE_CCACHE=no \
-            COMPRESS_OUTPUTIMAGE=img
-          sudo chown -R $(id -u):$(id -g) output/
-
-      - name: Install tools
+      - name: Install Dependents
         run: |
-          sudo apt update && sudo apt install -y img2simg
+          sudo apt install img2simg
+
           ver="v0.3.1"
           curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
           chmod +x ./AmlImg
 
-      - name: Download and unpack U-Boot
+      - name: Download and unpack the latest u-boot
         run: |
-          echo "::group::Download U-Boot"
-          curl -L -o ./uboot.img "https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}"
+          echo "::group::Download"
+          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
           echo "::endgroup::"
+
           echo "::group::Unpack"
           ./AmlImg unpack ./uboot.img burn/
           echo "::endgroup::"
 
-      - name: Extract partitions
+      - name: Extract boot and rootfs partitions
         run: |
-          if ! ls output/images/*.img >/dev/null 2>&1; then
-            echo "ERROR: No .img file found in output/images/"
-            ls -la output/images/
-            exit 1
-          fi
           diskimg=$(ls output/images/*.img)
-          loop=$(sudo losetup --find --show --partscan "$diskimg")
-          sudo img2simg "${loop}p1" burn/boot.simg
-          sudo img2simg "${loop}p2" burn/rootfs.simg
-          sudo losetup -d "$loop"
-          sudo chown -R $(id -u):$(id -g) burn/
+          loop=$(sudo losetup --find --show --partscan $diskimg)
+          sudo img2simg ${loop}p1 burn/boot.simg
+          sudo img2simg ${loop}p2 burn/rootfs.simg
+          sudo losetup -d $loop
+          sudo chown $(id -u):$(id -g) -R burn/
 
       - name: Generate burn image
         run: |
           echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
           echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
-          cat <<EOF >burn/commands.txt
-PARTITION:boot:sparse:boot.simg
-VERIFY:boot:normal:boot.VERIFY
-PARTITION:rootfs:sparse:rootfs.simg
-VERIFY:rootfs:normal:rootfs.VERIFY
-EOF
-          prefix=$(ls output/images/*.img | sed 's/\.img$//')
-          burnimg="${prefix}.burn.img"
-          ./AmlImg pack "$burnimg" burn/
 
-      - name: Hash and compress
+          cat <<EOF >>burn/commands.txt
+          PARTITION:boot:sparse:boot.simg
+          VERIFY:boot:normal:boot.VERIFY
+          PARTITION:rootfs:sparse:rootfs.simg
+          VERIFY:rootfs:normal:rootfs.VERIFY
+          EOF
+
+          prefix=$(ls output/images/*.img | sed 's/\.img$//')
+          burnimg=${prefix}.burn.img
+          ./AmlImg pack $burnimg burn/
+
+      - name: Hash and compress images
         run: |
           for f in output/images/*.img; do
             sha256sum "$f" | tee -a sha256sum
@@ -335,21 +319,22 @@ EOF
           done
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE }}
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
           path: output/images/*
 
-      - name: Append to release
+      - name: Generate release informations
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
-$(awk '{printf "%s: `%s`\n", $2, $1}' sha256sum)
-EOF
+            $(cat sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
+          EOF
 
-      - name: Upload images to release
+      - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
           append_body: true
           body_path: Release.md
-          files: output/images/*
+          files: |
+            output/images/*
