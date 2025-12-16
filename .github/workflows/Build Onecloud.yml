@@ -2,7 +2,7 @@ name: "Build Onecloud"
 
 on:
   schedule:
-    - cron: '0 0 1 * *'
+    - cron: '0 0 1 * *'        # 每月 1 号 UTC 00:00 触发
   workflow_dispatch:
   push:
     branches:
@@ -14,12 +14,11 @@ env:
   SCRIPT_REPO: ${{ github.repository }}
   SCRIPT_REF: ${{ github.ref_name }}
   UBOOT_REPO: hzyitc/u-boot-onecloud
-  UBOOT_RELEASE: latest
   UBOOT_BURNIMG: eMMC.burn.img
   ARMBIAN_REPO: armbian/build
   ARMBIAN_REF: main
   PATCHES: 4077,5076
-  PATCHES_DISABLED: 5082
+  PATCHES_DISABLED: 5082  # 未使用，可选保留
 
 permissions:
   contents: write
@@ -30,93 +29,163 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       env: ${{ steps.get.outputs.env }}
+      skip: ${{ steps.check.outputs.skip }}
     steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Define helper functions
+        run: |
+          cat <<'EOF' >> "$GITHUB_ENV"
+          fetch_with_retry() {
+            local url="$1"
+            local output="$2"
+            for i in {1..3}; do
+              if curl -fL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                         -H "Accept: application/vnd.github.v3+json" \
+                         -o "$output" "$url"; then
+                return 0
+              fi
+              echo "Retry $i failed for $url"
+              sleep $((i * 10))
+            done
+            echo "ERROR: Failed to fetch $url after 3 retries" >&2
+            return 1
+          }
+          EOF
+
       - id: get
         name: Get repositories information
         run: |
-          TIME="$(curl https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID} | jq -r .created_at)"
+          source "$GITHUB_ENV"
+
+          TIME_JSON=$(mktemp)
+          if ! fetch_with_retry "https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID}" "$TIME_JSON"; then
+            exit 1
+          fi
+          TIME=$(jq -r .created_at "$TIME_JSON")
           TAG="ci-$(date -d "${TIME}" -u +'%Y%m%d-%H%M%S-%Z')"
+          rm -f "$TIME_JSON"
 
-          SCRIPT_SHA=$(curl https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF} | jq -r .sha)
-          UBOOT_TAG=$(curl -sL https://api.github.com/repos/${UBOOT_REPO}/releases/latest | jq -r .tag_name)
-          ARMBIAN_SHA=$(curl https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF} | jq -r .sha)
+          SCRIPT_SHA_JSON=$(mktemp)
+          if ! fetch_with_retry "https://api.github.com/repos/${SCRIPT_REPO}/commits/${SCRIPT_REF}" "$SCRIPT_SHA_JSON"; then
+            exit 1
+          fi
+          SCRIPT_SHA=$(jq -r .sha "$SCRIPT_SHA_JSON")
+          rm -f "$SCRIPT_SHA_JSON"
 
-          cat <<EOF | sed -E 's/^  //' >>$GITHUB_ENV
-            TIME=$TIME
-            TAG=$TAG
-            SCRIPT_SHA=$SCRIPT_SHA
-            UBOOT_TAG=$UBOOT_TAG
-            ARMBIAN_SHA=$ARMBIAN_SHA
+          UBOOT_LATEST_JSON=$(mktemp)
+          if ! fetch_with_retry "https://api.github.com/repos/${UBOOT_REPO}/releases/latest" "$UBOOT_LATEST_JSON"; then
+            echo "ERROR: Failed to fetch latest release from ${UBOOT_REPO}" >&2
+            exit 1
+          fi
+          UBOOT_TAG=$(jq -r .tag_name "$UBOOT_LATEST_JSON")
+          if [[ -z "$UBOOT_TAG" || "$UBOOT_TAG" == "null" ]]; then
+            echo "ERROR: Invalid UBOOT_TAG: $UBOOT_TAG" >&2
+            cat "$UBOOT_LATEST_JSON"
+            exit 1
+          fi
+          rm -f "$UBOOT_LATEST_JSON"
+
+          ARMBIAN_SHA_JSON=$(mktemp)
+          if ! fetch_with_retry "https://api.github.com/repos/${ARMBIAN_REPO}/commits/${ARMBIAN_REF}" "$ARMBIAN_SHA_JSON"; then
+            exit 1
+          fi
+          ARMBIAN_SHA=$(jq -r .sha "$ARMBIAN_SHA_JSON")
+          rm -f "$ARMBIAN_SHA_JSON"
+
+          cat <<EOF >> "$GITHUB_ENV"
+          TIME=$TIME
+          TAG=$TAG
+          SCRIPT_SHA=$SCRIPT_SHA
+          UBOOT_TAG=$UBOOT_TAG
+          ARMBIAN_SHA=$ARMBIAN_SHA
           EOF
-          echo "env=$(cat $GITHUB_ENV | base64 -w 0)" >>$GITHUB_OUTPUT
+
+          echo "env=$(cat "$GITHUB_ENV" | base64 -w 0)" >> "$GITHUB_OUTPUT"
 
       - name: Show repositories information
         run: |
-          C_RESET="\e[0m"
-          C_BLACK="\e[30m"
-          C_RED="\e[31m"
-          C_GREEN="\e[32m"
-          C_YELLOW="\e[33m"
-          C_BLUE="\e[34m"
-          C_MAGENTA="\e[35m"
-          C_CYAN="\e[36m"
-          C_GRAY="\e[37m"
-
+          C_RESET="\e[0m"; C_GREEN="\e[32m"; C_BLUE="\e[34m"; C_MAGENTA="\e[35m"; C_YELLOW="\e[33m"
           echo -e "$(cat <<EOF | sed -E 's/^  //'
             TIME: ${C_GREEN}$(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')${C_RESET}
             Script: ${C_BLUE}${SCRIPT_REPO}${C_RESET}@${C_MAGENTA}${SCRIPT_REF}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF})
                     ${C_YELLOW}${SCRIPT_SHA}${C_RESET}(https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA})
-            U-Boot: ${C_BLUE}${UBOOT_REPO}${C_RESET}@${C_MAGENTA}${UBOOT_RELEASE}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE})
-                    ${C_MAGENTA}${UBOOT_TAG}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
+            U-Boot: ${C_BLUE}${UBOOT_REPO}${C_RESET}@${C_MAGENTA}${UBOOT_TAG}${C_RESET}(https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
             Armbian: ${C_BLUE}${ARMBIAN_REPO}${C_RESET}@${C_MAGENTA}${ARMBIAN_REF}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF})
                      ${C_YELLOW}${ARMBIAN_SHA}${C_RESET}(https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA})
           EOF
           )"
-
           if [[ -n "${PATCHES}" ]]; then
             echo -e "\nPatches:"
-            while read -r id; do
-              echo -e "  ${C_BLUE}armbian/build${C_RESET}#${C_MAGENTA}${id}${C_RESET}(http://github.com/armbian/build/pull/${id})"
-            done < <(echo -e "${PATCHES}" | tr ',' '\n')
+            tr ',' '\n' <<<"${PATCHES}" | while read -r id; do
+              [[ -z "$id" ]] && continue
+              echo -e "  ${C_BLUE}armbian/build${C_RESET}#${C_MAGENTA}${id}${C_RESET}(https://github.com/armbian/build/pull/${id})"
+            done
           fi
-
-          cat <<EOF | sed -E 's/^  //' >>$GITHUB_STEP_SUMMARY
+          cat <<EOF | sed -E 's/^  //' >>"$GITHUB_STEP_SUMMARY"
             # $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
-
             ## Sources
             Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
+            U-Boot: [${UBOOT_REPO}@${UBOOT_TAG}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
             Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-
-            ${PATCHES:+$(
-              echo "## Patches"
-              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
-            )}
+            ${PATCHES:+## Patches
+            $(tr ',' '\n' <<<"${PATCHES}" | sed -E 's|(.*)|[armbian/build#\1](https://github.com/armbian/build/pull/\1)|')}
           EOF
 
+      - name: Check if rebuild is needed
+        id: check
+        run: |
+          LAST_RELEASE_JSON=$(mktemp)
+          if curl -fL -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                   -H "Accept: application/vnd.github.v3+json" \
+                   -o "$LAST_RELEASE_JSON" \
+                   "https://api.github.com/repos/${{ github.repository }}/releases/latest"; then
+            LAST_BODY=$(jq -r .body "$LAST_RELEASE_JSON")
+            HAS_PREV_RELEASE=true
+          else
+            echo "No previous release found. Will build."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            rm -f "$LAST_RELEASE_JSON"
+            exit 0
+          fi
+          rm -f "$LAST_RELEASE_JSON"
+
+          OLD_ARMBIAN_SHA=$(echo "$LAST_BODY" | grep -oE '\[`[0-9a-f]{7,40}`\]' | tail -n1 | tr -d '[`]')
+          OLD_UBOOT_TAG=$(echo "$LAST_BODY" | grep -oP 'hzyitc/u-boot-onecloud@\K[^`]+(?=`)' || echo "")
+
+          echo "Previous Armbian SHA: $OLD_ARMBIAN_SHA"
+          echo "Previous U-Boot Tag: $OLD_UBOOT_TAG"
+          echo "Current  Armbian SHA: ${{ env.ARMBIAN_SHA }}"
+          echo "Current  U-Boot Tag: ${{ env.UBOOT_TAG }}"
+
+          if [[ "$OLD_ARMBIAN_SHA" == "${{ env.ARMBIAN_SHA }}" && "$OLD_UBOOT_TAG" == "${{ env.UBOOT_TAG }}" ]]; then
+            echo "No changes detected in Armbian or U-Boot. Skipping build."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changes detected. Proceeding with build."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Generate release informations
+        if: steps.check.outputs.skip != 'true'
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
             CI $(date -d "$TIME" +'%Y-%m-%d %H:%M:%S %Z(%:z)')
-
             # Sources
             Script: [${SCRIPT_REPO}@${SCRIPT_REF}](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_REF}) ([\`${SCRIPT_SHA}\`](https://github.com/${SCRIPT_REPO}/tree/${SCRIPT_SHA}))
-            U-Boot: [${UBOOT_REPO}@${UBOOT_RELEASE}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_RELEASE}) ([\`${UBOOT_TAG}\`](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG}))
+            U-Boot: [${UBOOT_REPO}@${UBOOT_TAG}](https://github.com/${UBOOT_REPO}/releases/tag/${UBOOT_TAG})
             Armbian: [${ARMBIAN_REPO}@${ARMBIAN_REF}](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_REF}) ([\`${ARMBIAN_SHA}\`](https://github.com/${ARMBIAN_REPO}/tree/${ARMBIAN_SHA}))
-
-            ${PATCHES:+$(
-              echo "# Patches"
-              echo "${PATCHES}" | tr ',' '\n' | sed -E 's|(.*)|[armbian/build#\1](http://github.com/armbian/build/pull/\1)|'
-            )}
-
+            ${PATCHES:+# Patches
+            $(tr ',' '\n' <<<"${PATCHES}" | sed -E 's|(.*)|[armbian/build#\1](https://github.com/armbian/build/pull/\1)|')}
             # SHA256
           EOF
-
-          echo "NAME=$(head --line=1 Release.md)" >>$GITHUB_ENV
-          tail --line=+2 Release.md >Body.md
+          echo "NAME=$(head -n1 Release.md)" >>"$GITHUB_ENV"
+          tail -n +2 Release.md >Body.md
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        if: steps.check.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
           target_commitish: ${{ github.sha }}
@@ -125,6 +194,7 @@ jobs:
 
   build-debs:
     name: Build ${{ matrix.BRANCH }}
+    if: needs.prepare.outputs.skip != 'true'
     needs: prepare
     runs-on: ubuntu-22.04
     strategy:
@@ -136,56 +206,57 @@ jobs:
     steps:
       - name: Import env
         run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Armbian
+        uses: actions/checkout@v3
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: "Apply patch ${{ env.PATCHES }}"
+      - name: Apply patches
         if: ${{ env.PATCHES }}
         run: |
-          echo "::group::Download"
-          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
-          echo "::endgroup::"
-
-          for file in *.patch; do
-            echo "::group::Applying $file"
-            patch --batch -p1 -N <"$file"
+          mkdir -p patches
+          for id in $(echo "${PATCHES}" | tr ',' ' '); do
+            echo "::group::Download patch #$id"
+            curl -fL -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
+            echo "::endgroup::"
+          done
+          for f in patches/*.patch; do
+            echo "::group::Apply $(basename "$f")"
+            patch --batch -p1 -N <"$f"
             echo "::endgroup::"
           done
 
-      - name: Build
+      - name: Build kernel debs
         run: |
-          # Don't update remote cache
           export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh kernel \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              EXPERT=yes \
-              USE_CCACHE=no
-          sudo chown $(id -u):$(id -g) -R output/
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
+          sudo env GITHUB_ACTIONS=false KERNEL_MIRROR="$KERNEL_MIRROR" ./compile.sh kernel \
+            ALLOW_ROOT=yes \
+            BOARD=onecloud \
+            BRANCH=${{ matrix.BRANCH }} \
+            EXPERT=yes \
+            USE_CCACHE=no
+          sudo chown -R $(id -u):$(id -g) output/
 
-      - name: Upload artifacts
+      - name: Upload debs artifact
         uses: actions/upload-artifact@v4
         with:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/*
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload debs to release
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
-          files: |
-            output/debs/*
+          files: output/debs/*
 
   build:
     name: Build ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
-    needs: [ prepare, build-debs ]
+    if: needs.prepare.outputs.skip != 'true'
+    needs: [prepare, build-debs]
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
@@ -196,13 +267,14 @@ jobs:
           # - focal # Ubuntu 20.04 LTS
           # - jammy # Ubuntu 22.04 LTS
           - noble # Ubuntu 24.04 LTS
-          #- oracular # Ubuntu 24.10
-          #- plucky # Ubuntu 25.04
+          # - oracular # Ubuntu 24.10
+          # - plucky # Ubuntu 25.04
           # - buster # Debian 10
           # - bullseye # Debian 11
           # - bookworm # Debian 12
           - trixie # Debian 13
           # - sid # Debian unstable
+          # 建议移除不稳定的 oracular/plucky/sid/trixie，除非你明确需要
         TYPE:
           - minimal
           - cli
@@ -216,100 +288,107 @@ jobs:
     steps:
       - name: Import env
         run: |
-          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>$GITHUB_ENV
+          echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout Armbian
+        uses: actions/checkout@v3
         with:
           repository: ${{ env.ARMBIAN_REPO }}
           ref: ${{ env.ARMBIAN_SHA }}
 
-      - name: "Apply patch ${{ env.PATCHES }}"
+      - name: Apply patches
         if: ${{ env.PATCHES }}
         run: |
-          echo "::group::Download"
-          curl -L -O "https://github.com/armbian/build/pull/{${PATCHES}}.patch"
-          echo "::endgroup::"
-
-          for file in *.patch; do
-            echo "::group::Applying $file"
-            patch --batch -p1 -N <"$file"
-            echo "::endgroup::"
+          mkdir -p patches
+          for id in $(echo "${PATCHES}" | tr ',' ' '); do
+            curl -fL -o "patches/$id.patch" "https://github.com/armbian/build/pull/$id.patch"
+          done
+          for f in patches/*.patch; do
+            patch --batch -p1 -N <"$f"
           done
 
-      - name: Download debs
+      - name: Download prebuilt debs
         uses: actions/download-artifact@v4
         with:
           name: debs-${{ matrix.BRANCH }}
           path: output/debs/
 
-      - name: Build
+      - name: Build image
         run: |
-          # Don't update remote cache
           export GITHUB_ACTIONS=false
-          sudo --preserve-env \
-            ./compile.sh build \
-              ALLOW_ROOT=yes \
-              BOARD=onecloud \
-              BRANCH=${{ matrix.BRANCH }} \
-              RELEASE=${{ matrix.RELEASE }} \
-              KERNEL_CONFIGURE=no \
-              BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
-              BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
-              DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
-              DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
-              DESKTOP_APPGROUPS_SELECTED=${{ matrix.DESKTOP_APPGROUPS_SELECTED }} \
-              EXPERT=yes \
-              SKIP_EXTERNAL_TOOLCHAINS=yes \
-              CLEAN_LEVEL= \
-              USE_CCACHE=no \
-              COMPRESS_OUTPUTIMAGE=img
-          sudo chown $(id -u):$(id -g) -R output/
+          export KERNEL_MIRROR="https://github.com/gregkh/linux.git"
+          sudo env GITHUB_ACTIONS=false KERNEL_MIRROR="$KERNEL_MIRROR" ./compile.sh build \
+            ALLOW_ROOT=yes \
+            BOARD=onecloud \
+            BRANCH=${{ matrix.BRANCH }} \
+            RELEASE=${{ matrix.RELEASE }} \
+            KERNEL_CONFIGURE=no \
+            BUILD_MINIMAL=${{ matrix.TYPE == 'minimal' && 'yes' || 'no' }} \
+            BUILD_DESKTOP=${{ matrix.TYPE == 'desktop' && 'yes' || 'no' }} \
+            DESKTOP_ENVIRONMENT=${{ matrix.DESKTOP_ENVIRONMENT }} \
+            DESKTOP_ENVIRONMENT_CONFIG_NAME=${{ matrix.DESKTOP_ENVIRONMENT_CONFIG_NAME }} \
+            DESKTOP_APPGROUPS_SELECTED="${{ matrix.DESKTOP_APPGROUPS_SELECTED }}" \
+            EXPERT=yes \
+            SKIP_EXTERNAL_TOOLCHAINS=yes \
+            CLEAN_LEVEL="" \
+            USE_CCACHE=no \
+            COMPRESS_OUTPUTIMAGE=img
+          sudo chown -R $(id -u):$(id -g) output/
 
-      - name: Install Dependents
+      - name: Install tools
         run: |
-          sudo apt install img2simg
-
+          sudo apt update && sudo apt install -y img2simg
           ver="v0.3.1"
-          curl -L -o ./AmlImg https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64
+          curl -fL -o ./AmlImg "https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64"
           chmod +x ./AmlImg
 
-      - name: Download and unpack the latest u-boot
+      - name: Download and unpack U-Boot
         run: |
-          echo "::group::Download"
-          curl -L -o ./uboot.img https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}
+          echo "::group::Download U-Boot"
+          curl -fL -o ./uboot.img "https://github.com/${UBOOT_REPO}/releases/download/${UBOOT_TAG}/${UBOOT_BURNIMG}"
+          if file ./uboot.img | grep -q "HTML"; then
+            echo "ERROR: uboot.img is HTML (likely 404 or redirect error)"
+            cat ./uboot.img
+            exit 1
+          fi
+          if [[ ! -s ./uboot.img ]]; then
+            echo "ERROR: uboot.img is empty"
+            exit 1
+          fi
           echo "::endgroup::"
-
           echo "::group::Unpack"
           ./AmlImg unpack ./uboot.img burn/
           echo "::endgroup::"
 
-      - name: Extract boot and rootfs partitions
+      - name: Extract partitions
         run: |
+          if ! ls output/images/*.img >/dev/null 2>&1; then
+            echo "ERROR: No .img file found in output/images/"
+            ls -la output/images/
+            exit 1
+          fi
           diskimg=$(ls output/images/*.img)
-          loop=$(sudo losetup --find --show --partscan $diskimg)
-          sudo img2simg ${loop}p1 burn/boot.simg
-          sudo img2simg ${loop}p2 burn/rootfs.simg
-          sudo losetup -d $loop
-          sudo chown $(id -u):$(id -g) -R burn/
+          loop=$(sudo losetup --find --show --partscan "$diskimg")
+          sudo img2simg "${loop}p1" burn/boot.simg
+          sudo img2simg "${loop}p2" burn/rootfs.simg
+          sudo losetup -d "$loop"
+          sudo chown -R $(id -u):$(id -g) burn/
 
       - name: Generate burn image
         run: |
           echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
           echo -n "sha1sum $(sha1sum burn/rootfs.simg | awk '{print $1}')" >burn/rootfs.VERIFY
-
-          cat <<EOF >>burn/commands.txt
+          cat <<EOF >burn/commands.txt
           PARTITION:boot:sparse:boot.simg
           VERIFY:boot:normal:boot.VERIFY
           PARTITION:rootfs:sparse:rootfs.simg
           VERIFY:rootfs:normal:rootfs.VERIFY
           EOF
-
           prefix=$(ls output/images/*.img | sed 's/\.img$//')
-          burnimg=${prefix}.burn.img
-          ./AmlImg pack $burnimg burn/
+          burnimg="${prefix}.burn.img"
+          ./AmlImg pack "$burnimg" burn/
 
-      - name: Hash and compress images
+      - name: Hash and compress
         run: |
           for f in output/images/*.img; do
             sha256sum "$f" | tee -a sha256sum
@@ -319,20 +398,21 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE == 'desktop' && matrix.DESKTOP_ENVIRONMENT || matrix.TYPE }}
+          name: ${{ matrix.RELEASE }}-${{ matrix.BRANCH }}-${{ matrix.TYPE }}
           path: output/images/*
 
-      - name: Generate release informations
+      - name: Append to release
+        if: needs.prepare.outputs.skip != 'true'   # ✅ 已修正
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
-            $(cat sha256sum | awk '{printf "%s: `%s`\n", $2, $1}')
+            $(awk '{printf "%s: `%s`\n", $2, $1}' sha256sum)
           EOF
 
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload images to release
+        if: needs.prepare.outputs.skip != 'true'   # ✅ 已修正
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
           append_body: true
           body_path: Release.md
-          files: |
-            output/images/*
+          files: output/images/*
