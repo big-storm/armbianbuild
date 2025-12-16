@@ -34,9 +34,10 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Define helper functions
+      - id: get
+        name: Get repositories information
         run: |
-          cat <<'EOF' >> "$GITHUB_ENV"
+          # 定义带重试的 fetch 函数（仅在本步骤内有效）
           fetch_with_retry() {
             local url="$1"
             local output="$2"
@@ -52,12 +53,6 @@ jobs:
             echo "ERROR: Failed to fetch $url after 3 retries" >&2
             return 1
           }
-          EOF
-
-      - id: get
-        name: Get repositories information
-        run: |
-          source "$GITHUB_ENV"
 
           TIME_JSON=$(mktemp)
           if ! fetch_with_retry "https://api.github.com/repos/${SCRIPT_REPO}/actions/runs/${GITHUB_RUN_ID}" "$TIME_JSON"; then
@@ -94,14 +89,14 @@ jobs:
           ARMBIAN_SHA=$(jq -r .sha "$ARMBIAN_SHA_JSON")
           rm -f "$ARMBIAN_SHA_JSON"
 
-          cat <<EOF >> "$GITHUB_ENV"
-          TIME=$TIME
-          TAG=$TAG
-          SCRIPT_SHA=$SCRIPT_SHA
-          UBOOT_TAG=$UBOOT_TAG
-          ARMBIAN_SHA=$ARMBIAN_SHA
-          EOF
+          # 写入 GITHUB_ENV（仅 KEY=VALUE）
+          echo "TIME=$TIME" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "SCRIPT_SHA=$SCRIPT_SHA" >> "$GITHUB_ENV"
+          echo "UBOOT_TAG=$UBOOT_TAG" >> "$GITHUB_ENV"
+          echo "ARMBIAN_SHA=$ARMBIAN_SHA" >> "$GITHUB_ENV"
 
+          # 输出 base64 编码的 env 供后续 job 使用
           echo "env=$(cat "$GITHUB_ENV" | base64 -w 0)" >> "$GITHUB_OUTPUT"
 
       - name: Show repositories information
@@ -150,15 +145,12 @@ jobs:
             exit 0
           fi
           rm -f "$LAST_RELEASE_JSON"
-
           OLD_ARMBIAN_SHA=$(echo "$LAST_BODY" | grep -oE '\[`[0-9a-f]{7,40}`\]' | tail -n1 | tr -d '[`]')
           OLD_UBOOT_TAG=$(echo "$LAST_BODY" | grep -oP 'hzyitc/u-boot-onecloud@\K[^`]+(?=`)' || echo "")
-
           echo "Previous Armbian SHA: $OLD_ARMBIAN_SHA"
           echo "Previous U-Boot Tag: $OLD_UBOOT_TAG"
           echo "Current  Armbian SHA: ${{ env.ARMBIAN_SHA }}"
           echo "Current  U-Boot Tag: ${{ env.UBOOT_TAG }}"
-
           if [[ "$OLD_ARMBIAN_SHA" == "${{ env.ARMBIAN_SHA }}" && "$OLD_UBOOT_TAG" == "${{ env.UBOOT_TAG }}" ]]; then
             echo "No changes detected in Armbian or U-Boot. Skipping build."
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -207,7 +199,6 @@ jobs:
       - name: Import env
         run: |
           echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
-
       - name: Checkout Armbian
         uses: actions/checkout@v3
         with:
@@ -228,7 +219,6 @@ jobs:
             patch --batch -p1 -N <"$f"
             echo "::endgroup::"
           done
-
       - name: Build kernel debs
         run: |
           export GITHUB_ACTIONS=false
@@ -240,7 +230,6 @@ jobs:
             EXPERT=yes \
             USE_CCACHE=no
           sudo chown -R $(id -u):$(id -g) output/
-
       - name: Upload debs artifact
         uses: actions/upload-artifact@v4
         with:
@@ -264,17 +253,8 @@ jobs:
         BRANCH:
           - current
         RELEASE:
-          # - focal # Ubuntu 20.04 LTS
-          # - jammy # Ubuntu 22.04 LTS
           - noble # Ubuntu 24.04 LTS
-          # - oracular # Ubuntu 24.10
-          # - plucky # Ubuntu 25.04
-          # - buster # Debian 10
-          # - bullseye # Debian 11
-          # - bookworm # Debian 12
           - trixie # Debian 13
-          # - sid # Debian unstable
-          # 建议移除不稳定的 oracular/plucky/sid/trixie，除非你明确需要
         TYPE:
           - minimal
           - cli
@@ -289,7 +269,6 @@ jobs:
       - name: Import env
         run: |
           echo "$(echo "${{ needs.prepare.outputs.env }}" | base64 -d)" >>"$GITHUB_ENV"
-
       - name: Checkout Armbian
         uses: actions/checkout@v3
         with:
@@ -306,7 +285,6 @@ jobs:
           for f in patches/*.patch; do
             patch --batch -p1 -N <"$f"
           done
-
       - name: Download prebuilt debs
         uses: actions/download-artifact@v4
         with:
@@ -334,14 +312,12 @@ jobs:
             USE_CCACHE=no \
             COMPRESS_OUTPUTIMAGE=img
           sudo chown -R $(id -u):$(id -g) output/
-
       - name: Install tools
         run: |
           sudo apt update && sudo apt install -y img2simg
           ver="v0.3.1"
           curl -fL -o ./AmlImg "https://github.com/hzyitc/AmlImg/releases/download/$ver/AmlImg_${ver}_linux_amd64"
           chmod +x ./AmlImg
-
       - name: Download and unpack U-Boot
         run: |
           echo "::group::Download U-Boot"
@@ -359,7 +335,6 @@ jobs:
           echo "::group::Unpack"
           ./AmlImg unpack ./uboot.img burn/
           echo "::endgroup::"
-
       - name: Extract partitions
         run: |
           if ! ls output/images/*.img >/dev/null 2>&1; then
@@ -373,7 +348,6 @@ jobs:
           sudo img2simg "${loop}p2" burn/rootfs.simg
           sudo losetup -d "$loop"
           sudo chown -R $(id -u):$(id -g) burn/
-
       - name: Generate burn image
         run: |
           echo -n "sha1sum $(sha1sum burn/boot.simg | awk '{print $1}')" >burn/boot.VERIFY
@@ -387,14 +361,12 @@ jobs:
           prefix=$(ls output/images/*.img | sed 's/\.img$//')
           burnimg="${prefix}.burn.img"
           ./AmlImg pack "$burnimg" burn/
-
       - name: Hash and compress
         run: |
           for f in output/images/*.img; do
             sha256sum "$f" | tee -a sha256sum
             xz --threads=0 --compress "$f"
           done
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -402,14 +374,13 @@ jobs:
           path: output/images/*
 
       - name: Append to release
-        if: needs.prepare.outputs.skip != 'true'   # ✅ 已修正
+        if: needs.prepare.outputs.skip != 'true'
         run: |
           cat <<EOF | sed -E 's/^  //' | tee Release.md
             $(awk '{printf "%s: `%s`\n", $2, $1}' sha256sum)
           EOF
-
       - name: Upload images to release
-        if: needs.prepare.outputs.skip != 'true'   # ✅ 已修正
+        if: needs.prepare.outputs.skip != 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG }}
